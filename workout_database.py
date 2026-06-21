@@ -35,7 +35,7 @@ def arms_intermediate(location):
         )
     return location
 
-def arms_advancend(location):
+def arms_advanced(location):
 
     if location.lower() == "gym":
         print("EZ-Bar Curls: 5 x 10, " \
