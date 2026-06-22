@@ -1,18 +1,18 @@
 """
 chatbot_logic.py
 
-This file controls the conversation flow of the workout chatbot.
+This file controls the conversation flow of the Telegram Workout Assistant.
 
 It does NOT deal directly with Telegram.
 It only receives a user_id and message, then returns the correct response.
 
-Flow:
+Conversation Flow:
 
-User: I want a workout
+User: start
 Bot: Which muscle group?
 
 User: Chest
-Bot: Beginner, Intermediate, or Advanced?
+Bot: Beginner, Intermediate, or Experienced?
 
 User: Intermediate
 Bot: Gym or Home?
@@ -33,13 +33,14 @@ from user_state import (
 
 from validators import (
     normalize_input,
+    normalize_muscle_group,
+    normalize_difficulty,
+    normalize_location,
     validate_muscle_group,
     validate_difficulty,
     validate_location
 )
 
-# Import your existing workout functions here.
-# This assumes your workout functions are inside workout_database.py.
 from workout_database import (
     chest_beginner,
     chest_intermediate,
@@ -73,12 +74,12 @@ from workout_database import (
 
 def welcome_message():
     """
-    Returns the first message the user sees.
+    Returns the first message the user sees when starting the bot.
     """
 
     return (
         "Welcome to your Telegram Workout Assistant.\n\n"
-        "I can help you generate a simple workout plan based on:\n"
+        "I can help you create a workout plan based on:\n"
         "- Muscle group\n"
         "- Difficulty level\n"
         "- Gym or home training\n\n"
@@ -122,7 +123,7 @@ def ask_for_difficulty():
         "Choose one:\n"
         "Beginner\n"
         "Intermediate\n"
-        "Advanced"
+        "Experienced"
     )
 
 
@@ -141,7 +142,7 @@ def ask_for_location():
 
 def invalid_muscle_group_message():
     """
-    Returns an error message for invalid muscle group input.
+    Returns an error message when the user enters an invalid muscle group.
     """
 
     return (
@@ -159,7 +160,7 @@ def invalid_muscle_group_message():
 
 def invalid_difficulty_message():
     """
-    Returns an error message for invalid difficulty input.
+    Returns an error message when the user enters an invalid difficulty level.
     """
 
     return (
@@ -167,13 +168,13 @@ def invalid_difficulty_message():
         "Please choose one of the following:\n"
         "Beginner\n"
         "Intermediate\n"
-        "Advanced"
+        "Experienced"
     )
 
 
 def invalid_location_message():
     """
-    Returns an error message for invalid training location input.
+    Returns an error message when the user enters an invalid training location.
     """
 
     return (
@@ -191,18 +192,18 @@ def help_message():
 
     return (
         "Here is how to use this bot:\n\n"
-        "1. Tell me you want a workout.\n"
+        "1. Type 'start' to begin.\n"
         "2. Choose a muscle group.\n"
-        "3. Choose a difficulty level.\n"
-        "4. Choose Gym or Home.\n"
+        "3. Choose your difficulty level.\n"
+        "4. Choose whether you are training at the gym or at home.\n"
         "5. I will generate a workout for you.\n\n"
-        "You can type 'start' to begin or 'exit' to stop."
+        "You can type 'exit', 'cancel', or 'stop' at any time to end the current session."
     )
 
 
 def exit_message(user_id):
     """
-    Ends the user's current conversation.
+    Ends the user's current conversation and clears their saved state.
     """
 
     reset_user_state(user_id)
@@ -213,32 +214,37 @@ def exit_message(user_id):
     )
 
 
-def normalize_muscle_group(muscle_group):
+def display_difficulty(difficulty):
     """
-    Converts user-friendly muscle group text into the format used by the code.
+    Converts the internal difficulty name into the user-facing name.
 
-    Example:
-    'full body' stays 'full body'
-    'Full Body' becomes 'full body'
+    Internally:
+    - experienced becomes advanced
+
+    User-facing:
+    - advanced is displayed as Experienced
     """
 
-    return normalize_input(muscle_group)
+    if difficulty == "advanced":
+        return "Experienced"
+
+    return difficulty.title()
 
 
 def call_workout_function(workout_function, location):
     """
     Calls a workout function and returns its output.
 
-    This helper supports two possible workout function styles:
+    This supports workout functions that either:
 
-    1. Functions that return a string:
+    1. Return a string:
        return "Push-Ups: 3 x 15"
 
-    2. Functions that print the workout:
+    2. Print the workout:
        print("Push-Ups: 3 x 15")
 
     Since some of your earlier examples used print(), this function captures
-    printed output and returns it as a Telegram message.
+    printed output and returns it as a Telegram-friendly text response.
     """
 
     output_buffer = StringIO()
@@ -265,9 +271,14 @@ def call_workout_function(workout_function, location):
 
 def get_workout_function(muscle_group, difficulty):
     """
-    Returns the correct workout function based on muscle group and difficulty.
+    Finds the correct workout function based on muscle group and difficulty.
 
-    This keeps your workout logic separate from your conversation logic.
+    Example:
+    muscle_group = "chest"
+    difficulty = "intermediate"
+
+    Returns:
+    chest_intermediate
     """
 
     workout_router = {
@@ -319,7 +330,10 @@ def get_workout_function(muscle_group, difficulty):
 
 def generate_workout_response(muscle_group, difficulty, location):
     """
-    Generates the final workout response.
+    Generates the final workout response after the user has selected:
+    - muscle group
+    - difficulty
+    - location
     """
 
     workout_function = get_workout_function(
@@ -330,7 +344,7 @@ def generate_workout_response(muscle_group, difficulty, location):
     if workout_function is None:
         return (
             "Sorry, I could not find a workout for that selection.\n\n"
-            "Please try again."
+            "Please type 'start' and try again."
         )
 
     workout = call_workout_function(
@@ -339,8 +353,8 @@ def generate_workout_response(muscle_group, difficulty, location):
     )
 
     return (
-        f"Here is your {difficulty.title()} {muscle_group.title()} workout "
-        f"for {location.title()} training:\n\n"
+        f"Here is your {display_difficulty(difficulty)} "
+        f"{muscle_group.title()} workout for {location.title()} training:\n\n"
         f"{workout}"
     )
 
@@ -354,7 +368,18 @@ def process_message(user_id, message):
 
     message = normalize_input(message)
 
-    if message in ["hi", "hello", "hey", "start", "/start", "workout", "i want a workout"]:
+    if message in [
+        "hi",
+        "hello",
+        "hey",
+        "start",
+        "/start",
+        "workout",
+        "i want a workout",
+        "i need a workout",
+        "create workout",
+        "make workout"
+    ]:
         create_user_state(user_id)
         return welcome_message()
 
@@ -398,10 +423,12 @@ def process_message(user_id, message):
         if not validate_difficulty(message):
             return invalid_difficulty_message()
 
+        difficulty = normalize_difficulty(message)
+
         update_user_state(
             user_id,
             "difficulty",
-            message
+            difficulty
         )
 
         update_user_state(
@@ -417,10 +444,12 @@ def process_message(user_id, message):
         if not validate_location(message):
             return invalid_location_message()
 
+        location = normalize_location(message)
+
         update_user_state(
             user_id,
             "location",
-            message
+            location
         )
 
         state = get_user_state(user_id)
